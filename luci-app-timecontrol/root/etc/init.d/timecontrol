@@ -1,0 +1,74 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+CONFIG=timecontrol
+
+uci_get_by_type() {
+	local index=0
+	[ -n $4 ] && index=$4
+	local ret=$(uci -q get $CONFIG.@$1[$index].$2 2>/dev/null)
+	echo ${ret:=$3}
+}
+
+add_rule(){
+	nft insert rule inet fw4 dstnat counter jump TIMECONTROL
+	nft insert rule inet fw4 forward_lan counter jump TIMECONTROL
+	local count=$(uci show $CONFIG | grep "@macbind" | sed -n '$p' | cut -d '[' -f 2 | cut -d ']' -f 1)
+	[ -n "$count" ] && [ "$count" -ge 0 ] && {
+		u_get() {
+			local ret=$(uci -q get $CONFIG.@macbind[$1].$2)
+			echo ${ret:=$3}
+		}
+		for i in $(seq 0 $count); do
+			local enable=$(u_get $i enable 0)
+			local macaddr=$(u_get $i macaddr)
+			local timeoff=$(u_get $i timeoff)
+			local timeon=$(u_get $i timeon)
+			local z1=$(u_get $i z1)
+			local z2=$(u_get $i z2)
+			local z3=$(u_get $i z3)
+			local z4=$(u_get $i z4)
+			local z5=$(u_get $i z5)
+			local z6=$(u_get $i z6)
+			local z7=$(u_get $i z7)
+			[ "$z1" == "1" ] && local Z1="Monday,"
+			[ "$z2" == "1" ] && local Z2="Tuesday,"
+			[ "$z3" == "1" ] && local Z3="Wednesday,"
+			[ "$z4" == "1" ] && local Z4="Thursday,"
+			[ "$z5" == "1" ] && local Z5="Friday,"
+			[ "$z6" == "1" ] && local Z6="Saturday,"
+			[ "$z7" == "1" ] && local Z7="Sunday"
+			if [ -z $enable ] || [ -z $macaddr ] || [ -z $timeoff ] || [ -z $timeon ]; then
+				continue
+			fi
+			if [ "$enable" == "1" ]; then
+				nft add rule inet fw4 TIMECONTROL meta l4proto { tcp,udp } ether saddr $macaddr meta hour $timeon-$timeoff meta day { $Z1$Z2$Z3$Z4$Z5$Z6$Z7 } counter jump reject_to_wan
+			fi
+		done
+	}
+	echo "/etc/init.d/timecontrol restart" > "/var/etc/timecontrol.include"
+}
+
+del_rule(){
+	for chain_mia in dstnat forward_lan
+	do
+		handles=$(nft -a list chain inet fw4 ${chain_mia} | grep -E "TIMECONTROL" | awk -F '# handle ' '{print$2}')
+		for handle in $handles
+		do
+			nft delete rule inet fw4 ${chain_mia} handle ${handle} 2>/dev/null
+		done
+	done
+}
+
+start(){
+	ENABLED=$(uci_get_by_type basic enable 0)
+	[ "$ENABLED" != "1" ] && exit 0
+	nft add chain inet fw4 TIMECONTROL
+	add_rule
+}
+
+stop(){
+	del_rule
+	nft flush chain inet fw4 TIMECONTROL 2>/dev/null
+	nft delete chain inet fw4 TIMECONTROL 2>/dev/null
+}

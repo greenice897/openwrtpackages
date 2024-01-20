@@ -1,0 +1,52 @@
+#!/bin/sh /etc/rc.common
+# Copyright (c) 2011-2015 OpenWrt.org
+
+START=90
+
+start(){
+	if [ ! -f "/tmp/vlmcsd.pid" ]; then
+		/usr/bin/vlmcsd -i /etc/vlmcsd/vlmcsd.ini -p /tmp/vlmcsd.pid -L 0.0.0.0:1688
+		if [ -n "$FW4" ]; then
+			# local handles=$(nft -a list chain ip filter vlmscd_input_rule | grep -E "1688" | awk -F '# handle ' '{print$2}')
+			# nft delete rule ip filter vlmscd_input_rule handle ${handles} 2>/dev/null
+			nft add chain inet fw4 vlmscd_input_rule { type filter hook input priority 0\; }
+			nft add rule inet fw4 vlmscd_input_rule tcp dport 1688 counter accept
+			sed -i '/## luci-app-vlmcsd/d' /etc/firewall.user
+			echo "nft add rule inet fw4 vlmscd_input_rule tcp dport 1688 counter accept ## luci-app-vlmcsd" >> /etc/firewall.user
+			echo "KMS Server has started."
+		else
+			iptables -D input_rule -p tcp --dport 1688 -j ACCEPT
+			iptables -A input_rule -p tcp --dport 1688 -j ACCEPT 
+			sed -i '/## luci-app-vlmcsd/d' /etc/firewall.user
+			echo "iptables -A input_rule -p tcp --dport 1688 -j ACCEPT ## luci-app-vlmcsd" >> /etc/firewall.user
+			echo "KMS Server has started."
+		fi
+	else
+		echo "KMS Server has already started."
+	fi
+}
+
+stop(){
+	if [ ! -f "/tmp/vlmcsd.pid" ]; then
+		echo "KMS Server is not running."
+	else
+		pid=`cat /tmp/vlmcsd.pid`
+		kill $pid
+		rm -f /tmp/vlmcsd.pid
+		if [ -n "$FW4" ]; then
+			nft flush chain inet fw4 vlmscd_input_rule
+			nft delete chain inet fw4 vlmscd_input_rule
+		else
+			iptables -D input_rule -p tcp --dport 1688 -j ACCEPT
+		fi
+		sed -i '/## luci-app-vlmcsd/d' /etc/firewall.user
+		echo "KMS Server has stopped."
+	fi
+}
+
+restart(){
+	stop
+	sleep 2
+	start
+	echo "KMS Server has restarted."
+}
