@@ -85,65 +85,6 @@ local doh_validate = function(self, value, t)
 	return nil, translate("DoH request address") .. " " .. translate("Format must be:") .. " URL,IP"
 end
 
-local chinadns_dot_validate = function(self, value, t)
-	local function isValidDoTString(s)
-		local prefix = "tls://"
-		if s:sub(1, #prefix) ~= prefix then
-			return false
-		end
-		local address = s:sub(#prefix + 1)
-		local at_index = address:find("@")
-		local hash_index = address:find("#")
-		local domain, ip, port
-		if at_index then
-			if hash_index then
-				domain = address:sub(1, at_index - 1)
-				ip = address:sub(at_index + 1, hash_index - 1)
-				port = address:sub(hash_index + 1)
-			else
-				domain = address:sub(1, at_index - 1)
-				ip = address:sub(at_index + 1)
-				port = nil
-			end
-		else
-			if hash_index then
-				ip = address:sub(1, hash_index - 1)
-				port = address:sub(hash_index + 1)
-			else
-				ip = address
-				port = nil
-			end
-		end
-		local function isValidPort(port)
-			if not port then return true end
-			local num = tonumber(port)
-			return num and num > 0 and num < 65536
-		end
-		local function isValidDomain(domain)
-			if not domain then return true end
-			return #domain > 0
-		end
-		local function isValidIP(ip)
-			return datatypes.ipaddr(ip) or datatypes.ip6addr(ip)
-		end
-		if not isValidIP(ip) or not isValidPort(port) then
-			return false
-		end
-		if not isValidDomain(domain) then
-			return false
-		end
-		return true
-	end
-
-	if value ~= "" then
-		value = api.trim(value)
-		if isValidDoTString(value) then
-			return value
-		end
-	end
-	return nil, translate("Direct DNS") .. " DoT " .. translate("Format must be:") .. " tls://Domain@IP(#Port) or tls://IP(#Port)"
-end
-
 m:append(Template(appname .. "/global/status"))
 
 s = m:section(TypedSection, "global")
@@ -324,53 +265,78 @@ s:tab("DNS", translate("DNS"))
 dns_shunt = s:taboption("DNS", ListValue, "dns_shunt", "DNS " .. translate("Shunt"))
 dns_shunt:value("dnsmasq", "Dnsmasq")
 dns_shunt:value("chinadns-ng", "Dnsmasq + ChinaDNS-NG")
+if api.is_finded("smartdns") then
+	dns_shunt:value("smartdns", "SmartDNS")
+	group_domestic = s:taboption("DNS", Value, "group_domestic", translate("Domestic group name"))
+	group_domestic.placeholder = "local"
+	group_domestic:depends("dns_shunt", "smartdns")
+	group_domestic.description = translate("You only need to configure domestic DNS packets in SmartDNS and set it redirect or as Dnsmasq upstream, and fill in the domestic DNS group name here.")
+end
 
-o = s:taboption("DNS", ListValue, "direct_dns_mode", translate("Direct DNS") .. " " .. translate("Request protocol"))
+o = s:taboption("DNS", Value, "direct_dns", translate("Direct DNS"))
+o.datatype = "or(ipaddr,ipaddrport)"
 o.default = ""
 o:value("", translate("Auto"))
-o:value("udp", translatef("Requery DNS By %s", "UDP"))
-o:value("tcp", translatef("Requery DNS By %s", "TCP"))
-if os.execute("chinadns-ng -V | grep -i wolfssl >/dev/null") == 0 then
-	o:value("dot", translatef("Requery DNS By %s", "DoT"))
-end
---TO DO
---o:value("doh", "DoH")
+o:value("223.5.5.5")
+o:value("223.6.6.6")
+o:value("114.114.114.114")
+o:value("119.29.29.29")
+o:value("180.76.76.76")
+o:value("1.12.12.12")
+o:value("120.53.53.53")
 o:depends({dns_shunt = "dnsmasq"})
 o:depends({dns_shunt = "chinadns-ng"})
 
-o = s:taboption("DNS", Value, "direct_dns_udp", translate("Direct DNS"))
-o.datatype = "or(ipaddr,ipaddrport)"
-o.default = "223.5.5.5"
-o:value("223.5.5.5")
-o:value("223.6.6.6")
-o:value("119.29.29.29")
-o:value("180.184.1.1")
-o:value("180.184.2.2")
-o:value("114.114.114.114")
-o:depends("direct_dns_mode", "udp")
-
-o = s:taboption("DNS", Value, "direct_dns_tcp", translate("Direct DNS"))
-o.datatype = "or(ipaddr,ipaddrport)"
-o.default = "223.5.5.5"
-o:value("223.5.5.5")
-o:value("223.6.6.6")
-o:value("180.184.1.1")
-o:value("180.184.2.2")
-o:depends("direct_dns_mode", "tcp")
-
-o = s:taboption("DNS", Value, "direct_dns_dot", translate("Direct DNS"))
-o.default = "tls://dot.pub@1.12.12.12"
-o:value("tls://dot.pub@1.12.12.12")
-o:value("tls://dot.pub@120.53.53.53")
-o:value("tls://dot.360.cn@36.99.170.86")
-o:value("tls://dot.360.cn@101.198.191.4")
-o:value("tls://dns.alidns.com@2400:3200::1")
-o:value("tls://dns.alidns.com@2400:3200:baba::1")
-o.validate = chinadns_dot_validate
-o:depends("direct_dns_mode", "dot")
-
 o = s:taboption("DNS", Flag, "filter_proxy_ipv6", translate("Filter Proxy Host IPv6"), translate("Experimental feature."))
 o.default = "0"
+
+if api.is_finded("smartdns") then
+	o = s:taboption("DNS", DynamicList, "smartdns_remote_dns", translate("Remote DNS"))
+	o:value("tcp://1.1.1.1")
+	o:value("tcp://8.8.4.4")
+	o:value("tcp://8.8.8.8")
+	o:value("tcp://9.9.9.9")
+	o:value("tcp://208.67.222.222")
+	o:value("tls://1.1.1.1")
+	o:value("tls://8.8.4.4")
+	o:value("tls://8.8.8.8")
+	o:value("tls://9.9.9.9")
+	o:value("tls://208.67.222.222")
+	o:value("https://1.1.1.1/dns-query")
+	o:value("https://8.8.4.4/dns-query")
+	o:value("https://8.8.8.8/dns-query")
+	o:value("https://9.9.9.9/dns-query")
+	o:value("https://208.67.222.222/dns-query")
+	o:value("https://dns.adguard.com/dns-query,176.103.130.130")
+	o:value("https://doh.libredns.gr/dns-query,116.202.176.26")
+	o:value("https://doh.libredns.gr/ads,116.202.176.26")
+	o:depends("dns_shunt", "smartdns")
+	o.cfgvalue = function(self, section)
+		return m:get(section, self.option) or {"tcp://1.1.1.1"}
+	end
+	function o.write(self, section, value)
+		local t = {}
+		local t2 = {}
+		if type(value) == "table" then
+			local x
+			for _, x in ipairs(value) do
+				if x and #x > 0 then
+					if not t2[x] then
+						t2[x] = x
+						t[#t+1] = x
+					end
+				end
+			end
+		else
+			t = { value }
+		end
+		return DynamicList.write(self, section, t)
+	end
+
+	o = s:taboption("DNS", Flag, "smartdns_exclude_default_group", translate("Exclude Default Group"), translate("Exclude DNS Server from default group."))
+	o.default = "0"
+	o:depends("dns_shunt", "smartdns")
+end
 
 ---- DNS Forward Mode
 dns_mode = s:taboption("DNS", ListValue, "dns_mode", translate("Filter Mode"))
@@ -384,6 +350,9 @@ if has_singbox then
 end
 if has_xray then
 	dns_mode:value("xray", "Xray")
+end
+if api.is_finded("smartdns") then
+	dns_mode:depends({ dns_shunt = "smartdns",  ['!reverse'] = true })
 end
 
 o = s:taboption("DNS", ListValue, "xray_dns_mode", translate("Request protocol"))
