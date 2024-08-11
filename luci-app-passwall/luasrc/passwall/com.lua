@@ -19,8 +19,7 @@ _M.hysteria = {
 	match_fmt_str = "linux%%-%s$",
 	file_tree = {
 		armv6 = "arm",
-		armv7 = "arm",
-		mipsel = "mipsle"
+		armv7 = "arm"
 	}
 }
 
@@ -66,7 +65,6 @@ _M["chinadns-ng"] = {
 		x86_64  = "wolfssl@x86_64.*x86_64@",
 		x86     = "wolfssl@i386.*i686",
 		mips    = "wolfssl@mips%-.*mips32%+soft_float@",
-		mips64  = "wolfssl@mips64%-.*mips64%+soft_float@",
 		mipsel  = "wolfssl@mipsel.*mips32%+soft_float@",
 		aarch64 = "wolfssl_noasm@aarch64.*v8a",
 		rockchip = "wolfssl@aarch64.*v8a",
